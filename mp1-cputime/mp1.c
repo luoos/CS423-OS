@@ -2,8 +2,10 @@
 
 #include <linux/uaccess.h>
 #include <linux/module.h>
+#include <linux/list.h>
 #include <linux/kernel.h>
 #include <linux/proc_fs.h>
+#include <linux/slab.h>
 #include "mp1_given.h"
 
 MODULE_LICENSE("GPL");
@@ -18,15 +20,42 @@ MODULE_DESCRIPTION("CS-423 MP1");
 static struct proc_dir_entry *proc_dir;
 static struct proc_dir_entry *proc_entry;
 
+typedef struct cpu_usage_list {
+    int pid;
+    int usage;
+    struct list_head lis;
+} cpu_usage;
+
+LIST_HEAD(usage_head);
+
+void create_list(void) {
+    cpu_usage *p = NULL;
+    int i = 0;
+    for (; i < 3; i++) {
+        p = (cpu_usage *) kmalloc(sizeof(cpu_usage), GFP_ATOMIC);
+
+        if (!p) return;
+        p->pid = i;
+        p->usage = i * 10;
+        list_add(&(p->lis), &usage_head);
+    }
+}
+
 static ssize_t mp1_read (struct file *file, char __user *buffer, size_t count, loff_t *data) {
     char buf[BUFSIZE];
     int len = 0;
+    cpu_usage *cp;
+    struct list_head *ptr;
 
     printk(KERN_ALERT "mp1_read\n");
     if (*data > 0 || count < BUFSIZE) {
         return 0;
     }
-    len += sprintf(buf, "Hey there\n");
+
+    list_for_each(ptr, &usage_head) {
+        cp = list_entry(ptr, cpu_usage, lis);
+        len += sprintf(buf+len, "%d: %d\n", cp->pid, cp->usage);
+    }
 
     if (copy_to_user(buffer, buf, len)) {
        return -EFAULT;
@@ -56,6 +85,7 @@ int __init mp1_init(void)
     proc_dir = proc_mkdir(DIRECTORY, NULL);
     proc_entry = proc_create(FILENAME, 0666, proc_dir, & mp1_file);
 
+    create_list();
 
     printk(KERN_ALERT "MP1 MODULE LOADED\n");
     return 0;
