@@ -16,6 +16,7 @@ MODULE_DESCRIPTION("CS-423 MP1");
 #define FILENAME "status"
 #define DIRECTORY "mp1"
 #define BUFSIZE 512
+#define WRITE_BUFSIZE 1024
 
 static struct proc_dir_entry *proc_dir;
 static struct proc_dir_entry *proc_entry;
@@ -28,6 +29,8 @@ typedef struct cpu_usage_list {
 
 LIST_HEAD(usage_head);
 
+static char write_buffer[WRITE_BUFSIZE];
+
 void create_list(void) {
     cpu_usage *p = NULL;
     int i = 0;
@@ -39,6 +42,17 @@ void create_list(void) {
         p->usage = i * 10;
         list_add(&(p->lis), &usage_head);
     }
+}
+
+void add_pid(int pid) {
+    cpu_usage *p = (cpu_usage *) kmalloc(sizeof(cpu_usage), GFP_ATOMIC);
+    if (!p) {
+        printk(KERN_ALERT "fail to malloc for cpu_usage");
+        return;
+    }
+    p->pid = pid;
+    p->usage = 0;
+    list_add(&(p->lis), &usage_head);
 }
 
 static ssize_t mp1_read (struct file *file, char __user *buffer, size_t count, loff_t *data) {
@@ -65,8 +79,21 @@ static ssize_t mp1_read (struct file *file, char __user *buffer, size_t count, l
 }
 
 static ssize_t mp1_write (struct file *file, const char __user *buffer, size_t count, loff_t *data) {
-    printk(KERN_ALERT "mp1_write\n");
-    return 0;
+    int buffer_size = count;
+    int pid, n;
+    if (count > WRITE_BUFSIZE) {
+        buffer_size = WRITE_BUFSIZE;
+    }
+    if (copy_from_user(write_buffer, buffer, buffer_size)) {
+        return -EFAULT;
+    }
+    n = sscanf(write_buffer, "%d", &pid);
+    if (n == 1) {
+        add_pid(pid);
+    } else {
+        printk(KERN_ALERT "fail, buf: %s", write_buffer);
+    }
+    return buffer_size;
 }
 
 static const struct file_operations mp1_file = {
@@ -85,7 +112,7 @@ int __init mp1_init(void)
     proc_dir = proc_mkdir(DIRECTORY, NULL);
     proc_entry = proc_create(FILENAME, 0666, proc_dir, & mp1_file);
 
-    create_list();
+    // create_list();
 
     printk(KERN_ALERT "MP1 MODULE LOADED\n");
     return 0;
