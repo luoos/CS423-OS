@@ -6,6 +6,7 @@
 #include <linux/kernel.h>
 #include <linux/proc_fs.h>
 #include <linux/slab.h>
+#include <linux/timer.h>
 #include "mp1_given.h"
 
 MODULE_LICENSE("GPL");
@@ -17,6 +18,7 @@ MODULE_DESCRIPTION("CS-423 MP1");
 #define DIRECTORY "mp1"
 #define BUFSIZE 512
 #define WRITE_BUFSIZE 1024
+#define UPDATE_INTERVAL 5000 // 5 seconds
 
 static struct proc_dir_entry *proc_dir;
 static struct proc_dir_entry *proc_entry;
@@ -30,6 +32,11 @@ typedef struct cpu_usage_list {
 LIST_HEAD(usage_head);
 
 static char write_buffer[WRITE_BUFSIZE];
+
+static struct timer_list cpu_usage_timer;
+void fire_timer(void);
+
+void timer_callback(unsigned long data);
 
 void create_list(void) {
     cpu_usage *p = NULL;
@@ -64,6 +71,20 @@ void add_pid(int pid) {
     p->pid = pid;
     p->usage = 0;
     list_add(&(p->lis), &usage_head);
+}
+
+void timer_callback(unsigned long data) {
+    printk(KERN_ALERT "timer_callback, data: %lu", data);
+    fire_timer();
+}
+
+void fire_timer(void) {
+    // setup_timer(&cpu_usage_timer, timer_callback, 0);
+    // mod_timer(&cpu_usage_timer, jiffies + msecs_to_jiffies(UPDATE_INTERVAL));
+    cpu_usage_timer.expires = jiffies + msecs_to_jiffies(UPDATE_INTERVAL);
+    cpu_usage_timer.data = 999;
+    cpu_usage_timer.function = timer_callback;
+    add_timer(&cpu_usage_timer);
 }
 
 static ssize_t mp1_read (struct file *file, char __user *buffer, size_t count, loff_t *data) {
@@ -124,6 +145,8 @@ int __init mp1_init(void)
     proc_entry = proc_create(FILENAME, 0666, proc_dir, & mp1_file);
 
     // create_list();
+    init_timer(&cpu_usage_timer);
+    fire_timer();
 
     printk(KERN_ALERT "MP1 MODULE LOADED\n");
     return 0;
@@ -136,6 +159,8 @@ void __exit mp1_exit(void)
     printk(KERN_ALERT "MP1 MODULE UNLOADING\n");
     #endif
     // Insert your code here ...
+    del_timer_sync(&cpu_usage_timer);
+
     proc_remove(proc_entry);
     proc_remove(proc_dir);
 
