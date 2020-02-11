@@ -7,6 +7,7 @@
 #include <linux/proc_fs.h>
 #include <linux/slab.h>
 #include <linux/timer.h>
+#include <linux/interrupt.h>
 #include "mp1_given.h"
 
 MODULE_LICENSE("GPL");
@@ -25,7 +26,7 @@ static struct proc_dir_entry *proc_entry;
 
 typedef struct cpu_usage_list {
     int pid;
-    int usage;
+    unsigned long usage;
     struct list_head lis;
 } cpu_usage;
 
@@ -73,18 +74,34 @@ void add_pid(int pid) {
     list_add(&(p->lis), &usage_head);
 }
 
+void update_cpu_usage(unsigned long unused) {
+    cpu_usage *cp;
+    struct list_head *ptr;
+    int r;
+
+    // #ifdef DEBUG
+    // printk(KERN_ALERT "updating cpu usage");
+    // #endif
+
+    list_for_each(ptr, &usage_head) {
+        cp = list_entry(ptr, cpu_usage, lis);
+        r = get_cpu_use(cp->pid, &(cp->usage));
+
+        // #ifdef DEBUG
+        // printk(KERN_ALERT "r: %d, pid: %d, usage: %lu", r, cp->pid, cp->usage);
+        // #endif
+    }
+}
+
+DECLARE_TASKLET (update_cpu_usage_tasklet, update_cpu_usage, 0);
+
 void timer_callback(unsigned long data) {
-    printk(KERN_ALERT "timer_callback, data: %lu", data);
+    tasklet_schedule(&update_cpu_usage_tasklet);
     fire_timer();
 }
 
 void fire_timer(void) {
-    // setup_timer(&cpu_usage_timer, timer_callback, 0);
-    // mod_timer(&cpu_usage_timer, jiffies + msecs_to_jiffies(UPDATE_INTERVAL));
-    cpu_usage_timer.expires = jiffies + msecs_to_jiffies(UPDATE_INTERVAL);
-    cpu_usage_timer.data = 999;
-    cpu_usage_timer.function = timer_callback;
-    add_timer(&cpu_usage_timer);
+    mod_timer(&cpu_usage_timer, jiffies + msecs_to_jiffies(UPDATE_INTERVAL));
 }
 
 static ssize_t mp1_read (struct file *file, char __user *buffer, size_t count, loff_t *data) {
@@ -100,7 +117,7 @@ static ssize_t mp1_read (struct file *file, char __user *buffer, size_t count, l
 
     list_for_each(ptr, &usage_head) {
         cp = list_entry(ptr, cpu_usage, lis);
-        len += sprintf(buf+len, "%d: %d\n", cp->pid, cp->usage);
+        len += sprintf(buf+len, "%d: %lu\n", cp->pid, cp->usage);
     }
 
     if (copy_to_user(buffer, buf, len)) {
@@ -145,7 +162,7 @@ int __init mp1_init(void)
     proc_entry = proc_create(FILENAME, 0666, proc_dir, & mp1_file);
 
     // create_list();
-    init_timer(&cpu_usage_timer);
+    setup_timer(&cpu_usage_timer, timer_callback, 0);
     fire_timer();
 
     printk(KERN_ALERT "MP1 MODULE LOADED\n");
