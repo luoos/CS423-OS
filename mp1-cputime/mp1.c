@@ -44,6 +44,17 @@ void create_list(void) {
     }
 }
 
+void free_list(void) {
+    cpu_usage *cp;
+    struct list_head *ptr;
+
+    list_for_each(ptr, &usage_head) {
+        cp = list_entry(ptr, cpu_usage, lis);
+        printk(KERN_ALERT "kfree for pid: %d", cp->pid);
+        kfree(cp);
+    }
+}
+
 void add_pid(int pid) {
     cpu_usage *p = (cpu_usage *) kmalloc(sizeof(cpu_usage), GFP_ATOMIC);
     if (!p) {
@@ -127,6 +138,8 @@ void __exit mp1_exit(void)
     // Insert your code here ...
     proc_remove(proc_entry);
     proc_remove(proc_dir);
+
+    free_list();
 
     printk(KERN_ALERT "MP1 MODULE UNLOADED\n");
 }
