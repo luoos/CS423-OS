@@ -8,6 +8,7 @@
 #include <linux/slab.h>
 #include <linux/timer.h>
 #include <linux/interrupt.h>
+#include <linux/spinlock.h>
 #include "mp1_given.h"
 
 MODULE_LICENSE("GPL");
@@ -31,6 +32,7 @@ typedef struct cpu_usage_list {
 } cpu_usage;
 
 LIST_HEAD(usage_head);
+DEFINE_RWLOCK(list_lock);
 
 static char write_buffer[WRITE_BUFSIZE];
 
@@ -69,28 +71,45 @@ void add_pid(int pid) {
         printk(KERN_ALERT "fail to malloc for cpu_usage");
         return;
     }
+    write_lock(&list_lock);
     p->pid = pid;
     p->usage = 0;
     list_add(&(p->lis), &usage_head);
+    write_unlock(&list_lock);
 }
 
 void update_cpu_usage(unsigned long unused) {
     cpu_usage *cp;
+    cpu_usage *to_delete = NULL;
     struct list_head *ptr;
     int r;
 
     // #ifdef DEBUG
     // printk(KERN_ALERT "updating cpu usage");
     // #endif
-
+    write_lock(&list_lock);
     list_for_each(ptr, &usage_head) {
         cp = list_entry(ptr, cpu_usage, lis);
         r = get_cpu_use(cp->pid, &(cp->usage));
-
+        if (to_delete != NULL) {
+            list_del(&(to_delete->lis));
+            kfree(to_delete);
+            to_delete = NULL;
+        }
+        if (r == -1) {
+            // process disappear
+            to_delete = cp;
+        }
         // #ifdef DEBUG
         // printk(KERN_ALERT "r: %d, pid: %d, usage: %lu", r, cp->pid, cp->usage);
         // #endif
     }
+    if (to_delete != NULL) {
+        list_del(&(to_delete->lis));
+        kfree(to_delete);
+        to_delete = NULL;
+    }
+    write_unlock(&list_lock);
 }
 
 DECLARE_TASKLET (update_cpu_usage_tasklet, update_cpu_usage, 0);
