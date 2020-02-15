@@ -41,6 +41,7 @@ void fire_timer(void);
 
 void timer_callback(unsigned long data);
 
+// for test
 void create_list(void) {
     cpu_usage *p = NULL;
     int i = 0;
@@ -196,6 +197,7 @@ void __exit mp1_exit(void)
     #endif
     // Insert your code here ...
     del_timer_sync(&cpu_usage_timer);
+    tasklet_disable(&update_cpu_usage_tasklet);
 
     proc_remove(proc_entry);
     proc_remove(proc_dir);
