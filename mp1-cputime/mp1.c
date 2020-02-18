@@ -81,34 +81,19 @@ void add_pid(int pid) {
 
 void update_cpu_usage(unsigned long unused) {
     cpu_usage *cp;
-    cpu_usage *to_delete = NULL;
     struct list_head *ptr;
+    struct list_head *tmp;
     int r;
 
-    // #ifdef DEBUG
-    // printk(KERN_ALERT "updating cpu usage");
-    // #endif
     write_lock(&list_lock);
-    list_for_each(ptr, &usage_head) {
+    list_for_each_safe(ptr, tmp, &usage_head) {
         cp = list_entry(ptr, cpu_usage, lis);
         r = get_cpu_use(cp->pid, &(cp->usage));
-        if (to_delete != NULL) {
-            list_del(&(to_delete->lis));
-            kfree(to_delete);
-            to_delete = NULL;
-        }
         if (r == -1) {
             // process disappear
-            to_delete = cp;
+            list_del(ptr);
+            kfree(cp);
         }
-        // #ifdef DEBUG
-        // printk(KERN_ALERT "r: %d, pid: %d, usage: %lu", r, cp->pid, cp->usage);
-        // #endif
-    }
-    if (to_delete != NULL) {
-        list_del(&(to_delete->lis));
-        kfree(to_delete);
-        to_delete = NULL;
     }
     write_unlock(&list_lock);
 }
