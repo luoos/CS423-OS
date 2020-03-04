@@ -25,8 +25,6 @@ MODULE_DESCRIPTION("CS-423 MP2");
 static struct proc_dir_entry *proc_dir;
 static struct proc_dir_entry *proc_entry;
 
-static char write_buffer[WRITE_BUFSIZE];
-
 static DEFINE_MUTEX(RMS_tasks_lock);
 static LIST_HEAD(tasks_list);
 
@@ -116,6 +114,7 @@ static ssize_t file_read (struct file *file, char __user *buffer, size_t count, 
  * DE-REGISTRATION: "D,PID"
  */
 static ssize_t file_write (struct file *file, const char __user *buffer, size_t count, loff_t *data) {
+    char write_buffer[WRITE_BUFSIZE];
     int buffer_size = count;
     uint pid, period, computation;
     int n;
