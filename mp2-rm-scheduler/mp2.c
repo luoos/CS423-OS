@@ -136,6 +136,7 @@ static ssize_t file_write (struct file *file, const char __user *buffer, size_t 
         action_deregister(pid);
     } else {
         printk(KERN_ALERT "fail to interpret command: %s", write_buffer);
+        return -EINVAL;
     }
     return buffer_size;
 }
