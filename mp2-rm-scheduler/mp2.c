@@ -128,10 +128,10 @@ static ssize_t file_write (struct file *file, const char __user *buffer, size_t 
     }
     n = sscanf(write_buffer, "%c,%d,%d,%d", &action, &pid, &period, &computation);
 
-    if (action == 'R' && n == 4) {
-        action_register(pid, period, computation);
-    } else if (action == 'Y' && n == 2) {
+    if (action == 'Y' && n == 2) {
         action_yield(pid);
+    } else if (action == 'R' && n == 4) {
+        action_register(pid, period, computation);
     } else if (action == 'D' && n == 2) {
         action_deregister(pid);
     } else {
