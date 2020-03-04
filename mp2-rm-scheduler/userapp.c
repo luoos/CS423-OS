@@ -3,6 +3,8 @@
 #include <unistd.h>
 
 #define PROC_FILE "/proc/mp2/status"
+#define true 1
+#define false 0
 
 typedef unsigned int    uint;
 
@@ -16,9 +18,11 @@ void write_to_file(char *s) {
     fclose(fp);
 }
 
-void check_exist(uint pid) {
+int check_exist(uint pid) {
     char* line = NULL;
     size_t len = 0;
+    uint pid_p;
+    int exist = false;
     FILE *fp = fopen(PROC_FILE, "r");
     if (fp == NULL) {
         printf("[READ] fail to open file: %s\n", PROC_FILE);
@@ -26,34 +30,44 @@ void check_exist(uint pid) {
     }
 
     while (getline(&line, &len, fp) != -1) {
-        printf("%s", line);
+        sscanf(line, "%d,", &pid_p);
+        if (pid_p == pid) {
+            exist = true;
+            break;
+        }
     }
     fclose(fp);
+
+    return exist;
 }
 
 void sched_register(uint pid, uint period, uint computation) {
     char str[128];
     sprintf(str, "R,%d,%d,%d", pid, period, computation);
     write_to_file(str);
+    printf("[Registered] pid: %d, period: %d, computation: %d\n", pid, period, computation);
 }
 
 void sched_degister(uint pid) {
     char s[64];
     sprintf(s, "D,%d", pid);
     write_to_file(s);
+    printf("[Deregistered] pid: %d\n", pid);
 }
 
 int main(int argc, char* argv[]) {
     uint pid, period, computation;
 
     pid = getpid();
-    printf("pid: %d\n", pid);
 
     period = atoi(argv[1]);
     computation = atoi(argv[2]);
 
     sched_register(pid, period, computation);
-    check_exist(pid);
+    if (!check_exist(pid)) {
+        printf("pid doesn't exist, exit...\n");
+        exit(1);
+    }
 
     sched_degister(pid);
 
