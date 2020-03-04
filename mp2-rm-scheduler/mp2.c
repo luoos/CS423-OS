@@ -88,12 +88,20 @@ void action_deregister(uint pid) {
 static ssize_t file_read (struct file *file, char __user *buffer, size_t count, loff_t *data) {
     char buf[READ_BUFSIZE];
     int len = 0;
+    RMS_task *task;
+    struct list_head *ptr;
 
     if (*data > 0 || count < READ_BUFSIZE) {
         return 0;
     }
 
-    len += sprintf(buf+len, "file_read\n");
+    mutex_lock(&RMS_tasks_lock);
+    list_for_each(ptr, &tasks_list) {
+        task = list_entry(ptr, RMS_task, lis);
+        len += sprintf(buf+len, "%d,%d,%d,%d\n", task->linux_task->pid,
+                        task->period, task->computation, task->state);
+    }
+    mutex_unlock(&RMS_tasks_lock);
 
     if (copy_to_user(buffer, buf, len)) {
        return -EFAULT;
