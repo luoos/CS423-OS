@@ -34,8 +34,10 @@ typedef struct RMS_task_struct {
     struct timer_list wakeup_timer;
     struct list_head lis;
     int state;
-    uint period;
-    uint computation;
+    pid_t pid;
+    unsigned long period_ms;
+    unsigned long compute_time_ms;
+    unsigned long deadline_jiff;
 } RMS_task;
 
 void __add_task(RMS_task *task) {
@@ -63,22 +65,24 @@ void __del_task(pid_t pid) {
     mutex_unlock(&RMS_tasks_lock);
 }
 
-void action_register(uint pid, uint period, uint computation) {
+void action_register(pid_t pid, unsigned long period, unsigned long computation) {
     RMS_task *t = (RMS_task *) kmalloc(sizeof(RMS_task), GFP_KERNEL);
     struct task_struct *ts = find_task_by_pid(pid);
-    printk(KERN_ALERT "registration, pid: %d, period: %d, computation: %d", pid, period, computation);
+    printk(KERN_ALERT "registration, pid: %d, period: %lu, computation: %lu", pid, period, computation);
+    t->pid = pid;
     t->linux_task = ts;
     t->state = STATE_SLEEPING;
-    t->period = period;
-    t->computation = computation;
+    t->period_ms = period;
+    t->compute_time_ms = computation;
+    t->deadline_jiff = jiffies + msecs_to_jiffies(period);
     __add_task(t);
 }
 
-void action_yield(uint pid) {
+void action_yield(pid_t pid) {
     printk(KERN_ALERT "yield, pid: %d", pid);
 }
 
-void action_deregister(uint pid) {
+void action_deregister(pid_t pid) {
     printk(KERN_ALERT "deregistration: pid: %d", pid);
     __del_task(pid);
 }
@@ -96,8 +100,8 @@ static ssize_t file_read (struct file *file, char __user *buffer, size_t count, 
     mutex_lock(&RMS_tasks_lock);
     list_for_each(ptr, &tasks_list) {
         task = list_entry(ptr, RMS_task, lis);
-        len += sprintf(buf+len, "%d,%d,%d,%d\n", task->linux_task->pid,
-                        task->period, task->computation, task->state);
+        len += sprintf(buf+len, "%d,%lu,%lu,%d\n", task->pid,
+                        task->period_ms, task->compute_time_ms, task->state);
     }
     mutex_unlock(&RMS_tasks_lock);
 
@@ -116,7 +120,8 @@ static ssize_t file_read (struct file *file, char __user *buffer, size_t count, 
 static ssize_t file_write (struct file *file, const char __user *buffer, size_t count, loff_t *data) {
     char write_buffer[WRITE_BUFSIZE];
     int buffer_size = count;
-    uint pid, period, computation;
+    pid_t pid;
+    unsigned long period, computation;
     int n;
     char action;
     if (count > WRITE_BUFSIZE) {
@@ -125,7 +130,7 @@ static ssize_t file_write (struct file *file, const char __user *buffer, size_t 
     if (copy_from_user(write_buffer, buffer, buffer_size)) {
         return -EFAULT;
     }
-    n = sscanf(write_buffer, "%c,%d,%d,%d", &action, &pid, &period, &computation);
+    n = sscanf(write_buffer, "%c,%d,%lu,%lu", &action, &pid, &period, &computation);
 
     if (action == 'Y' && n == 2) {
         action_yield(pid);
