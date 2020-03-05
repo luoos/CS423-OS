@@ -7,6 +7,8 @@
 #include <linux/list.h>
 #include <linux/mutex.h>
 #include <linux/slab.h>
+#include <linux/timer.h>
+#include <linux/kthread.h>
 
 #include "mp2_given.h"
 
@@ -28,6 +30,8 @@ static struct proc_dir_entry *proc_entry;
 static DEFINE_MUTEX(RMS_tasks_lock);
 static LIST_HEAD(tasks_list);
 
+static struct task_struct *dispatcher;
+
 // RMS: Rate-Monotonic CPU Scheduler
 typedef struct RMS_task_struct {
     struct task_struct* linux_task;
@@ -39,6 +43,8 @@ typedef struct RMS_task_struct {
     unsigned long compute_time_ms;
     unsigned long deadline_jiff;
 } RMS_task;
+
+RMS_task* running_task;
 
 void __add_task(RMS_task *task) {
     mutex_lock(&RMS_tasks_lock);
@@ -65,6 +71,90 @@ void __del_task(pid_t pid) {
     mutex_unlock(&RMS_tasks_lock);
 }
 
+RMS_task* __get_task(pid_t pid) {
+    RMS_task *task = NULL;
+    RMS_task *tmp;
+    mutex_lock(&RMS_tasks_lock);
+    list_for_each_entry(tmp, &tasks_list, lis) {
+        if (tmp->pid == pid) {
+            task = tmp;
+            break;
+        }
+    }
+    mutex_unlock(&RMS_tasks_lock);
+    return task;
+}
+
+RMS_task* __get_to_run_task(void) {
+    RMS_task *task = NULL;
+    RMS_task *tmp;
+    unsigned long min_period = INT_MAX;
+    mutex_lock(&RMS_tasks_lock);
+    list_for_each_entry(tmp, &tasks_list, lis) {
+        if (tmp->state == STATE_READY && tmp->period_ms < min_period) {
+            task = tmp;
+            min_period = tmp->period_ms;
+        }
+    }
+    mutex_unlock(&RMS_tasks_lock);
+    return task;
+}
+
+void __timer_callback(unsigned long data) {
+    pid_t pid = (pid_t) data;
+    RMS_task *task = __get_task(pid);
+    if (task == NULL) {
+        printk(KERN_ALERT "[WARN] timer callback NULL task, pid: %d", pid);
+        return;
+    }
+    task->state = STATE_READY;
+    wake_up_process(dispatcher);
+    mod_timer(&(task->wakeup_timer), jiffies + msecs_to_jiffies(task->period_ms));
+}
+
+void run_task(struct task_struct *task) {
+    struct sched_param sparam;
+    wake_up_process(task);
+    sparam.sched_priority = 99;
+    sched_setscheduler(task, SCHED_FIFO, &sparam);
+}
+
+void pause_task(struct task_struct *task) {
+    struct sched_param sparam;
+    sparam.sched_priority = 0;
+    sched_setscheduler(task, SCHED_NORMAL, &sparam);
+}
+
+int dispatching(void *data) {
+    RMS_task *task_to_run;
+
+    while (1) {
+        set_current_state(TASK_INTERRUPTIBLE);
+        schedule();
+
+        if (kthread_should_stop()) return 0;
+
+        task_to_run = __get_to_run_task();
+
+        if (task_to_run == NULL) {
+            if (running_task && running_task->state == STATE_RUNNING) {
+                running_task->state = STATE_READY;
+                pause_task(running_task->linux_task);
+                running_task = NULL;
+            }
+        } else {
+            if (running_task) {
+                running_task->state = STATE_READY;
+                pause_task(running_task->linux_task);
+            }
+
+            task_to_run->state = STATE_RUNNING;
+            run_task(task_to_run->linux_task);
+        }
+        running_task = task_to_run;
+    }
+}
+
 void action_register(pid_t pid, unsigned long period, unsigned long computation) {
     RMS_task *t = (RMS_task *) kmalloc(sizeof(RMS_task), GFP_KERNEL);
     struct task_struct *ts = find_task_by_pid(pid);
@@ -74,17 +164,52 @@ void action_register(pid_t pid, unsigned long period, unsigned long computation)
     t->state = STATE_SLEEPING;
     t->period_ms = period;
     t->compute_time_ms = computation;
-    t->deadline_jiff = jiffies + msecs_to_jiffies(period);
+    t->deadline_jiff = 0;
     __add_task(t);
+    setup_timer(&t->wakeup_timer, __timer_callback, ts->pid);
 }
 
 void action_yield(pid_t pid) {
-    printk(KERN_ALERT "yield, pid: %d", pid);
+    RMS_task *task;
+    if (running_task && running_task->pid == pid) {
+        task = running_task;
+    } else {
+        task = __get_task(pid);
+    }
+    if (task == NULL) {
+        printk(KERN_ALERT "[Err] no such task to yield, pid: %d", pid);
+        return;
+    }
+
+    if (task->deadline_jiff == 0) {
+        // first time to yield
+        unsigned long sleep_ms = task->period_ms - task->compute_time_ms;
+        task->deadline_jiff = jiffies + msecs_to_jiffies(task->period_ms);
+        mod_timer(&(task->wakeup_timer), jiffies + msecs_to_jiffies(sleep_ms));
+    }
+
+    if (running_task && running_task->pid == pid) {
+        running_task = NULL;
+    }
+    task->state = STATE_SLEEPING;
+    set_task_state(task->linux_task, TASK_INTERRUPTIBLE);
+    schedule();
 }
 
 void action_deregister(pid_t pid) {
-    printk(KERN_ALERT "deregistration: pid: %d", pid);
+    RMS_task *task;
+    if (running_task && running_task->pid == pid) {
+        task = running_task;
+    } else {
+        task = __get_task(pid);
+    }
+    del_timer(&task->wakeup_timer);
     __del_task(pid);
+    if (running_task && running_task->pid == pid) {
+        running_task = NULL;
+        wake_up_process(dispatcher);
+    }
+    printk(KERN_ALERT "deregistration: pid: %d", pid);
 }
 
 static ssize_t file_read (struct file *file, char __user *buffer, size_t count, loff_t *data) {
@@ -160,6 +285,8 @@ int __init sche_init(void)
     // Insert your code here ...
     proc_dir = proc_mkdir(DIRECTORY, NULL);
     proc_entry = proc_create(FILENAME, 0666, proc_dir, &file);
+
+    dispatcher = kthread_run(dispatching, NULL, "dispatching");
 
     printk(KERN_ALERT "MP2 MODULE LOADED\n");
     return 0;
