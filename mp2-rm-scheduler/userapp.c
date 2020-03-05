@@ -70,15 +70,21 @@ unsigned long factorial(uint n) {
     return ans;
 }
 
+unsigned long to_millisecond(struct timeval *t) {
+    return t->tv_sec * 1000 + (t->tv_usec / 1000);
+}
+
 void print_time_gap(struct timeval *start, struct timeval *end) {
-    unsigned long start_ms = start->tv_sec * 1000 + (start->tv_usec / 1000);
-    unsigned long end_ms = end->tv_sec * 1000 + (end->tv_usec / 1000);
+    unsigned long start_ms = to_millisecond(start);
+    unsigned long end_ms = to_millisecond(end);
     printf("time elapse: %lu ms\n", end_ms - start_ms);
 }
 
 int main(int argc, char* argv[]) {
     uint pid, n, period, computation;
-    struct timeval start, end;
+    struct timeval start, end, loop_start, loop_end;
+    int iter = 10;
+    unsigned long total_time, average_time;
 
     pid = getpid();
 
@@ -94,13 +100,18 @@ int main(int argc, char* argv[]) {
 
     sched_yield(pid);
 
-    for (int i = 0; i < 10; i++) {
+    gettimeofday(&loop_start, NULL);
+    for (int i = 0; i < iter; i++) {
         gettimeofday(&start, NULL);
         factorial(n);
         sched_yield(pid);
         gettimeofday(&end, NULL);
         print_time_gap(&start, &end);
     }
+    gettimeofday(&loop_end, NULL);
+    total_time = to_millisecond(&loop_end) - to_millisecond(&loop_start);
+    average_time = total_time / iter;
+    printf("average time: %lu\n", average_time);    
 
     sched_degister(pid);
 
