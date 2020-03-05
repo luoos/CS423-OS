@@ -92,10 +92,12 @@ int main(int argc, char* argv[]) {
         exit(1);
     }
 
+    sched_yield(pid);
 
     for (int i = 0; i < 10; i++) {
         gettimeofday(&start, NULL);
         factorial(n);
+        sched_yield(pid);
         gettimeofday(&end, NULL);
         print_time_gap(&start, &end);
     }
