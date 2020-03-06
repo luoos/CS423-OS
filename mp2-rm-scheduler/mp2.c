@@ -100,6 +100,19 @@ RMS_task* __get_to_run_task(void) {
     return task;
 }
 
+void free_all_tasks(void) {
+    RMS_task *task;
+    struct list_head *ptr, *tmp;
+    mutex_lock(&RMS_tasks_lock);
+    list_for_each_safe(ptr, tmp, &tasks_list) {
+        task = list_entry(ptr, RMS_task, lis);
+        del_timer(&(task->wakeup_timer));
+        list_del(ptr);
+        kfree(task);
+    }
+    mutex_unlock(&RMS_tasks_lock);
+}
+
 void __timer_callback(unsigned long data) {
     pid_t pid = (pid_t) data;
     RMS_task *task = __get_task(pid);
@@ -323,6 +336,8 @@ void __exit sche_exit(void)
 
     proc_remove(proc_entry);
     proc_remove(proc_dir);
+
+    free_all_tasks();
 
     printk(KERN_ALERT "MP2 MODULE UNLOADED\n");
 }
