@@ -169,8 +169,13 @@ int dispatching(void *data) {
 }
 
 int admission_control(unsigned long period, unsigned computation) {
-    unsigned long portion = (computation * 10000) / period;
-    RMS_task *task = NULL;
+    RMS_task *task;
+    unsigned long portion;
+
+    if (period == 0 || computation == 0) {
+        return 0;
+    }
+    portion = (computation * 10000) / period;
 
     mutex_lock(&RMS_tasks_lock);
     list_for_each_entry(task, &tasks_list, lis) {
