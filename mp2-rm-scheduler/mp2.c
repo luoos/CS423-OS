@@ -155,9 +155,31 @@ int dispatching(void *data) {
     }
 }
 
+int admission_control(unsigned long period, unsigned computation) {
+    unsigned long portion = (computation * 10000) / period;
+    RMS_task *task = NULL;
+
+    mutex_lock(&RMS_tasks_lock);
+    list_for_each_entry(task, &tasks_list, lis) {
+        portion += (task->compute_time_ms * 10000) / task->period_ms;
+    }
+    mutex_unlock(&RMS_tasks_lock);
+    if (portion <= 6930) {
+        return 1; // pass
+    }
+    return 0;  // fail
+}
+
 void action_register(pid_t pid, unsigned long period, unsigned long computation) {
-    RMS_task *t = (RMS_task *) kmalloc(sizeof(RMS_task), GFP_KERNEL);
-    struct task_struct *ts = find_task_by_pid(pid);
+    RMS_task *t;
+    struct task_struct *ts;
+
+    if (admission_control(period, computation) == 0) {
+        printk(KERN_ALERT "process %d failed to pass admission_control", pid);
+        return;
+    }
+    t = (RMS_task *) kmalloc(sizeof(RMS_task), GFP_KERNEL);
+    ts = find_task_by_pid(pid);
     printk(KERN_ALERT "registration, pid: %d, period: %lu, computation: %lu", pid, period, computation);
     t->pid = pid;
     t->linux_task = ts;
