@@ -17,12 +17,6 @@ int main(int argc, char* argv[])
 	int n, r, pid;
 	FILE *fp;
 
-	if (argc != 2) {
-		printf("Usage: ./userapp <n>\n\n");
-		printf("Example:\n./userapp 20\n");
-		return 1;
-	}
-
 	pid = getpid();
 	printf("pid: %d\n", pid);
 
@@ -34,7 +28,11 @@ int main(int argc, char* argv[])
 	fprintf(fp, "%d", pid);
 	fclose(fp);
 
-	n = atoi(argv[1]);
+	if (argc == 1) {
+		n = 45;
+	} else {
+		n = atoi(argv[1]);
+	}
 
 	r = fib(n);
 	printf("fib(%d)=%d\n", n, r);
