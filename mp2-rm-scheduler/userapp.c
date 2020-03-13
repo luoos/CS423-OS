@@ -88,9 +88,20 @@ int main(int argc, char* argv[]) {
 
     pid = getpid();
 
-    n = atoi(argv[1]);
-    period = atoi(argv[2]);
-    computation = atoi(argv[3]);
+    if (argc == 1) {
+        n = 45000000;
+        period = 1000;
+        computation = 155;
+    } else if (argc == 4) {
+        n = atoi(argv[1]);
+        period = atoi(argv[2]);
+        computation = atoi(argv[3]);
+    } else {
+        printf("Invalid arguments\n");
+        printf("Usage: ./userapp <factorial n> <period> <computation>\n");
+        printf("\tExample: ./userapp 45000000 1000 155\n");
+        exit(1);
+    }
 
     sched_register(pid, period, computation);
     if (!check_exist(pid)) {
