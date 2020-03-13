@@ -74,17 +74,17 @@ unsigned long to_millisecond(struct timeval *t) {
     return t->tv_sec * 1000 + (t->tv_usec / 1000);
 }
 
-void print_time_gap(struct timeval *start, struct timeval *end) {
+unsigned long get_time_interval(struct timeval *start, struct timeval *end) {
     unsigned long start_ms = to_millisecond(start);
     unsigned long end_ms = to_millisecond(end);
-    printf("time elapse: %lu ms\n", end_ms - start_ms);
+    return end_ms - start_ms;
 }
 
 int main(int argc, char* argv[]) {
     uint pid, n, period, computation;
-    struct timeval start, end, loop_start, loop_end;
+    struct timeval start, end, compute_time, loop_start, loop_end;
     int iter = 10;
-    unsigned long total_time, average_time;
+    unsigned long total_time, average_time, actual_period, actual_compute_time;
 
     pid = getpid();
 
@@ -104,14 +104,18 @@ int main(int argc, char* argv[]) {
     for (int i = 0; i < iter; i++) {
         gettimeofday(&start, NULL);
         factorial(n);
+        gettimeofday(&compute_time, NULL);
         sched_yield(pid);
         gettimeofday(&end, NULL);
-        print_time_gap(&start, &end);
+        actual_period = get_time_interval(&start, &end);
+        actual_compute_time = get_time_interval(&start, &compute_time);
+        printf("Pid: %6d, actual period: %6lu, expect period: %6d, actual compute: %6lu, expect compute: %6d\n",
+               pid, actual_period, period, actual_compute_time, computation);
     }
     gettimeofday(&loop_end, NULL);
     total_time = to_millisecond(&loop_end) - to_millisecond(&loop_start);
     average_time = total_time / iter;
-    printf("average time: %lu\n", average_time);    
+    printf("average period: %lu, total time: %lu, iter: %d\n", average_time, total_time, iter);
 
     sched_degister(pid);
 
