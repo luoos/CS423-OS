@@ -116,8 +116,14 @@ void free_all_tasks(void) {
 
 void __timer_callback(unsigned long data) {
     pid_t pid = (pid_t) data;
+    struct task_struct *ts;
     RMS_task *task = __get_task(pid);
-    if (task == NULL) {
+    ts = find_task_by_pid(pid);
+    if (ts == NULL) {
+        if (task != NULL) {
+            del_timer(&task->wakeup_timer);
+            __del_task(pid);
+        }
         printk(KERN_ALERT "[WARN] timer callback NULL task, pid: %d", pid);
         return;
     }
@@ -240,19 +246,18 @@ void action_yield(pid_t pid) {
 
 void action_deregister(pid_t pid) {
     RMS_task *task;
-    if (running_task && running_task->pid == pid) {
-        task = running_task;
-    } else {
-        task = __get_task(pid);
-    }
-    del_timer(&task->wakeup_timer);
-    __del_task(pid);
 
     mutex_lock(&running_task_lock);
     if (running_task && running_task->pid == pid) {
+        task = running_task;
         running_task = NULL;
+    } else {
+        task = __get_task(pid);
     }
     mutex_unlock(&running_task_lock);
+
+    del_timer_sync(&task->wakeup_timer);
+    __del_task(pid);
     wake_up_process(dispatcher);
     printk(KERN_ALERT "[Deregistration] pid: %d", pid);
 }
