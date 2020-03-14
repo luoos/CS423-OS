@@ -28,6 +28,7 @@ static struct proc_dir_entry *proc_dir;
 static struct proc_dir_entry *proc_entry;
 
 static DEFINE_MUTEX(RMS_tasks_lock);
+static DEFINE_MUTEX(running_task_lock);
 static LIST_HEAD(tasks_list);
 
 static struct task_struct *dispatcher;
@@ -125,17 +126,19 @@ void __timer_callback(unsigned long data) {
     mod_timer(&(task->wakeup_timer), jiffies + msecs_to_jiffies(task->period_ms));
 }
 
-void run_task(struct task_struct *task) {
+void run_task(RMS_task *task) {
     struct sched_param sparam;
-    wake_up_process(task);
+    task->state = STATE_RUNNING;
+    wake_up_process(task->linux_task);
     sparam.sched_priority = 99;
-    sched_setscheduler(task, SCHED_FIFO, &sparam);
+    sched_setscheduler(task->linux_task, SCHED_FIFO, &sparam);
 }
 
-void pause_task(struct task_struct *task) {
+void preempt_task(RMS_task *task) {
     struct sched_param sparam;
+    task->state = STATE_READY;
     sparam.sched_priority = 0;
-    sched_setscheduler(task, SCHED_NORMAL, &sparam);
+    sched_setscheduler(task->linux_task, SCHED_NORMAL, &sparam);
 }
 
 int dispatching(void *data) {
@@ -149,22 +152,18 @@ int dispatching(void *data) {
 
         task_to_run = __get_to_run_task();
 
-        if (task_to_run == NULL) {
-            if (running_task && running_task->state == STATE_RUNNING) {
-                running_task->state = STATE_READY;
-                pause_task(running_task->linux_task);
-                running_task = NULL;
+        mutex_lock(&running_task_lock);
+        if (task_to_run != NULL) {
+            if (running_task == NULL) {
+                run_task(task_to_run);
+            } else if (running_task->period_ms > task_to_run->period_ms) {
+                // Preempt
+                preempt_task(running_task);
+                run_task(task_to_run);
+                running_task = task_to_run;
             }
-        } else {
-            if (running_task) {
-                running_task->state = STATE_READY;
-                pause_task(running_task->linux_task);
-            }
-
-            task_to_run->state = STATE_RUNNING;
-            run_task(task_to_run->linux_task);
         }
-        running_task = task_to_run;
+        mutex_unlock(&running_task_lock);
     }
 }
 
@@ -228,10 +227,13 @@ void action_yield(pid_t pid) {
         mod_timer(&(task->wakeup_timer), jiffies + msecs_to_jiffies(sleep_ms));
     }
 
+    mutex_lock(&running_task_lock);
     if (running_task && running_task->pid == pid) {
         running_task = NULL;
     }
+    mutex_unlock(&running_task_lock);
     task->state = STATE_SLEEPING;
+    wake_up_process(dispatcher);
     set_task_state(task->linux_task, TASK_INTERRUPTIBLE);
     schedule();
 }
@@ -245,11 +247,14 @@ void action_deregister(pid_t pid) {
     }
     del_timer(&task->wakeup_timer);
     __del_task(pid);
+
+    mutex_lock(&running_task_lock);
     if (running_task && running_task->pid == pid) {
         running_task = NULL;
-        wake_up_process(dispatcher);
     }
-    printk(KERN_ALERT "deregistration: pid: %d", pid);
+    mutex_unlock(&running_task_lock);
+    wake_up_process(dispatcher);
+    printk(KERN_ALERT "[Deregistration] pid: %d", pid);
 }
 
 static ssize_t file_read (struct file *file, char __user *buffer, size_t count, loff_t *data) {
