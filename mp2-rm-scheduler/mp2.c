@@ -129,7 +129,6 @@ void __timer_callback(unsigned long data) {
     }
     task->state = STATE_READY;
     wake_up_process(dispatcher);
-    mod_timer(&(task->wakeup_timer), jiffies + msecs_to_jiffies(task->period_ms));
 }
 
 void run_task(RMS_task *task) {
@@ -209,13 +208,14 @@ void action_register(pid_t pid, unsigned long period, unsigned long computation)
     t->state = STATE_SLEEPING;
     t->period_ms = period;
     t->compute_time_ms = computation;
-    t->deadline_jiff = 0;
+    t->deadline_jiff = jiffies;
     __add_task(t);
     setup_timer(&t->wakeup_timer, __timer_callback, ts->pid);
 }
 
 void action_yield(pid_t pid) {
     RMS_task *task;
+    unsigned long next_deadline_jiff;
     if (running_task && running_task->pid == pid) {
         task = running_task;
     } else {
@@ -226,12 +226,9 @@ void action_yield(pid_t pid) {
         return;
     }
 
-    if (task->deadline_jiff == 0) {
-        // first time to yield
-        unsigned long sleep_ms = task->period_ms - task->compute_time_ms;
-        task->deadline_jiff = jiffies + msecs_to_jiffies(task->period_ms);
-        mod_timer(&(task->wakeup_timer), jiffies + msecs_to_jiffies(sleep_ms));
-    }
+    next_deadline_jiff = task->deadline_jiff + msecs_to_jiffies(task->period_ms);
+    mod_timer(&(task->wakeup_timer), next_deadline_jiff);
+    task->deadline_jiff = next_deadline_jiff;
 
     mutex_lock(&running_task_lock);
     if (running_task && running_task->pid == pid) {
