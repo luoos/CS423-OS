@@ -103,7 +103,26 @@ void action_deregister(pid_t pid) {
 }
 
 static ssize_t file_read(struct file *file, char __user *buffer, size_t count, loff_t *data) {
-    return 0;
+    char buf[RW_BUFSIZE];
+    int len = 0;
+    mp3_task *task;
+    struct list_head *ptr;
+
+    if (*data > 0 || count < RW_BUFSIZE) {
+        return 0;
+    }
+
+    mutex_lock(&task_list_lock);
+    list_for_each(ptr, &mp3_task_list) {
+        task = list_entry(ptr, mp3_task, lis);
+        len += sprintf(buf+len, "%d\n", task->pid);
+    }
+    mutex_unlock(&task_list_lock);
+    if (copy_to_user(buffer, buf, len)) {
+        return -EFAULT;
+    }
+    *data += len;
+    return len;
 }
 
 static ssize_t file_write(struct file *file, const char __user *user_buffer, size_t count, loff_t *data) {
