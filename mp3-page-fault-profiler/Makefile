@@ -9,7 +9,7 @@ RM:=rm
 
 all: clean modules app
 
-obj-m:= mp1.o
+obj-m:= mp3.o
 
 modules:
 	$(MAKE) -C $(KERNEL_SRC) M=$(SUBDIR) modules
