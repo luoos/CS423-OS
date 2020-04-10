@@ -2,7 +2,10 @@
 #include <linux/proc_fs.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/sched.h>
 #include <linux/uaccess.h>
+#include <linux/mutex.h>
+#include <linux/slab.h>
 
 #include "mp3_given.h"
 
@@ -17,12 +20,86 @@ MODULE_DESCRIPTION("CS-423 MP3");
 static struct proc_dir_entry *proc_dir;
 static struct proc_dir_entry *proc_file;
 
+typedef struct mp3_task_struct {
+    struct task_struct* linux_task;
+    struct list_head lis;
+    pid_t pid;
+    unsigned long util;
+    unsigned long major_fault;
+    unsigned long minor_fault;
+} mp3_task;
+
+static LIST_HEAD(mp3_task_list);
+static DEFINE_MUTEX(task_list_lock);
+static int task_cnt = 0;
+
+int __add_task(mp3_task *task) {
+    printk(KERN_ALERT "add task, pid: %d\n", task->pid);
+    mutex_lock(&task_list_lock);
+    list_add(&(task->lis), &mp3_task_list);
+    task_cnt += 1;
+    mutex_unlock(&task_list_lock);
+    return task_cnt;
+}
+
+int __del_task(pid_t pid) {
+    mp3_task *task;
+    struct list_head *ptr;
+    struct list_head *tmp;
+
+    mutex_lock(&task_list_lock);
+    list_for_each_safe(ptr, tmp, &mp3_task_list) {
+        task = list_entry(ptr, mp3_task, lis);
+        if (task->pid == pid) {
+            list_del(ptr);
+            kfree(task);
+            printk(KERN_ALERT "deleted task, pid: %d\n", pid);
+            task_cnt -= 1;
+            break;
+        }
+    }
+    mutex_unlock(&task_list_lock);
+    return task_cnt;
+}
+
+void free_all_tasks(void) {
+    mp3_task *task;
+    struct list_head *ptr, *tmp;
+    mutex_lock(&task_list_lock);
+    list_for_each_safe(ptr, tmp, &mp3_task_list) {
+        task = list_entry(ptr, mp3_task, lis);
+        list_del(ptr);
+        kfree(task);
+    }
+    mutex_unlock(&task_list_lock);
+}
+
 void action_register(pid_t pid) {
-    printk("register pid: %d\n", pid);
+    struct task_struct *linux_task;
+    mp3_task *task;
+    int exist_task_cnt;
+
+    linux_task = find_task_by_pid(pid);
+    if (linux_task != NULL) {
+        task = (mp3_task *) kmalloc(sizeof(mp3_task), GFP_KERNEL);
+        task->pid = pid;
+        task->linux_task = linux_task;
+        exist_task_cnt = __add_task(task);
+
+        if (exist_task_cnt == 1) {
+            // TODO: start profiler
+            printk(KERN_ALERT "start profiler\n");
+        }
+    }
 }
 
 void action_deregister(pid_t pid) {
-    printk("deregister pid: %d\n", pid);
+    int exist_task_cnt;
+    exist_task_cnt = __del_task(pid);
+    if (exist_task_cnt == 0) {
+        // TODO: stop profiler
+        printk(KERN_ALERT "stop profiler\n");
+    }
 }
 
 static ssize_t file_read(struct file *file, char __user *buffer, size_t count, loff_t *data) {
@@ -78,6 +155,8 @@ void __exit mp3_exit(void) {
     // remove proc file
     proc_remove(proc_file);
     proc_remove(proc_dir);
+
+    free_all_tasks();
     printk(KERN_ALERT "MP3 MODULE EXIT");
 }
 
