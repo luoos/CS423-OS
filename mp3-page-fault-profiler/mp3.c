@@ -9,6 +9,9 @@
 #include <linux/timer.h>
 #include <linux/workqueue.h>
 #include <linux/vmalloc.h>
+#include <linux/fs.h>
+#include <linux/device.h>
+#include <linux/mm.h>
 
 #include "mp3_given.h"
 
@@ -22,6 +25,8 @@ MODULE_DESCRIPTION("CS-423 MP3");
 #define PROFILE_PERIOD_MS 2000  // millisecond
 #define SAMPLE_BUFSIZE 128 * 4 * 1024
 #define MAX_SAMPLE_CNT 48000
+#define DEVICE_NAME "node"
+#define CLASS_NAME "mp3_dev"
 
 static struct proc_dir_entry *proc_dir;
 static struct proc_dir_entry *proc_file;
@@ -46,6 +51,10 @@ static struct delayed_work *profiling_work;
 
 static unsigned long *sample_buf;
 static int sample_index = 0;
+
+static int dev_major;
+static struct class *dev_class = NULL;
+static struct device *mp3_dev = NULL;
 
 void sampling(void) {
     mp3_task *task;
@@ -209,8 +218,38 @@ static const struct file_operations file = {
     .write = file_write,
 };
 
+static int device_open(struct inode *node, struct file *f) {
+    return 0;
+}
+static int device_release(struct inode *node, struct file *f) {
+    return 0;
+}
+
+static int device_mmap(struct file *filp, struct vm_area_struct *vma) {
+    int index = 0;
+    void *buf_pos = sample_buf;
+    while (index < SAMPLE_BUFSIZE) {
+        if (remap_pfn_range(vma, vma->vm_start + index,
+                vmalloc_to_pfn(buf_pos+index), PAGE_SIZE, vma->vm_page_prot)) {
+            printk(KERN_ALERT "fail to mmap\n");
+            return -EAGAIN;
+        }
+        index += PAGE_SIZE;
+    }
+    return 0;
+}
+
+static const struct file_operations device_fops = {
+    .open = device_open,
+    .release = device_release,
+    .mmap = device_mmap,
+};
+
 int __init mp3_init(void) {
     // register character device
+    dev_major = register_chrdev(0, DEVICE_NAME, &device_fops);
+    dev_class = class_create(THIS_MODULE, CLASS_NAME);
+    mp3_dev = device_create(dev_class, NULL, MKDEV(dev_major, 0), NULL, DEVICE_NAME);
 
     // create proc file
     printk(KERN_ALERT "MP3 MODULE INIT");
@@ -229,6 +268,10 @@ int __init mp3_init(void) {
 
 void __exit mp3_exit(void) {
     // remove character device
+    device_destroy(dev_class, MKDEV(dev_major, 0));
+    class_destroy(dev_class);
+    class_unregister(dev_class);
+    unregister_chrdev(dev_major, DEVICE_NAME);
 
     // remove proc file
     proc_remove(proc_file);
