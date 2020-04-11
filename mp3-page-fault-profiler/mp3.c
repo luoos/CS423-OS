@@ -59,10 +59,10 @@ void sampling(void) {
         cur_jiff = jiffies;
         r = get_cpu_use(task->pid, &(task->min_flt), &(task->maj_flt), &(task->utime), &(task->stime));
         if (r == 0) {
-            sample_buf[sample_index++] = jiffies;
+            sample_buf[sample_index++] = cur_jiff;
             sample_buf[sample_index++] = task->min_flt;
             sample_buf[sample_index++] = task->maj_flt;
-            sample_buf[sample_index++] = (task->utime + task->stime) / (cur_jiff - task->last_jiff);
+            sample_buf[sample_index++] = ((task->utime + task->stime) / (cur_jiff - task->last_jiff)) * 1000 ;
         }
         task->last_jiff = cur_jiff;
         sample_index = sample_index % MAX_SAMPLE_CNT;
