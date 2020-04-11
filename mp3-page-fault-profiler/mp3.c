@@ -234,6 +234,7 @@ void __exit mp3_exit(void) {
     proc_remove(proc_file);
     proc_remove(proc_dir);
 
+    cancel_delayed_work_sync(profiling_work);
     destroy_workqueue(wq);
 
     free_all_tasks();
