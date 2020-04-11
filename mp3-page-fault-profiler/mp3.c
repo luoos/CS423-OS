@@ -8,6 +8,7 @@
 #include <linux/slab.h>
 #include <linux/timer.h>
 #include <linux/workqueue.h>
+#include <linux/vmalloc.h>
 
 #include "mp3_given.h"
 
@@ -19,6 +20,8 @@ MODULE_DESCRIPTION("CS-423 MP3");
 #define PROC_DIR  "mp3"
 #define RW_BUFSIZE 512
 #define PROFILE_PERIOD_MS 2000  // millisecond
+#define SAMPLE_BUFSIZE 128 * 4 * 1024
+#define MAX_SAMPLE_CNT 48000
 
 static struct proc_dir_entry *proc_dir;
 static struct proc_dir_entry *proc_file;
@@ -27,9 +30,11 @@ typedef struct mp3_task_struct {
     struct task_struct* linux_task;
     struct list_head lis;
     pid_t pid;
-    unsigned long util;
-    unsigned long major_fault;
-    unsigned long minor_fault;
+    unsigned long utime;
+    unsigned long stime;
+    unsigned long maj_flt;
+    unsigned long min_flt;
+    unsigned long last_jiff;
 } mp3_task;
 
 static LIST_HEAD(mp3_task_list);
@@ -39,8 +44,35 @@ static int task_cnt = 0;
 static struct workqueue_struct *wq;
 static struct delayed_work *profiling_work;
 
+static unsigned long *sample_buf;
+static int sample_index = 0;
+
+void sampling(void) {
+    mp3_task *task;
+    struct list_head *ptr;
+    int r;
+    unsigned long cur_jiff;
+
+    mutex_lock(&task_list_lock);
+    list_for_each(ptr, &mp3_task_list) {
+        task = list_entry(ptr, mp3_task, lis);
+        cur_jiff = jiffies;
+        r = get_cpu_use(task->pid, &(task->min_flt), &(task->maj_flt), &(task->utime), &(task->stime));
+        if (r == 0) {
+            sample_buf[sample_index++] = jiffies;
+            sample_buf[sample_index++] = task->min_flt;
+            sample_buf[sample_index++] = task->maj_flt;
+            sample_buf[sample_index++] = (task->utime + task->stime) / (cur_jiff - task->last_jiff);
+        }
+        task->last_jiff = cur_jiff;
+        sample_index = sample_index % MAX_SAMPLE_CNT;
+    }
+    mutex_unlock(&task_list_lock);
+}
+
 void work_callback(struct work_struct *work) {
     printk(KERN_ALERT "profling...\n");
+    sampling();
     queue_delayed_work(wq, profiling_work, msecs_to_jiffies(PROFILE_PERIOD_MS));
 }
 
@@ -87,6 +119,7 @@ void free_all_tasks(void) {
 
 void start_profiling(void) {
     printk(KERN_ALERT "start profiling...\n");
+    sample_index = 0;
     queue_delayed_work(wq, profiling_work, msecs_to_jiffies(PROFILE_PERIOD_MS));
 }
 
@@ -105,6 +138,7 @@ void action_register(pid_t pid) {
         task = (mp3_task *) kmalloc(sizeof(mp3_task), GFP_KERNEL);
         task->pid = pid;
         task->linux_task = linux_task;
+        task->last_jiff = jiffies;
         exist_task_cnt = __add_task(task);
 
         if (exist_task_cnt == 1) {
@@ -181,6 +215,9 @@ int __init mp3_init(void) {
     // create proc file
     printk(KERN_ALERT "MP3 MODULE INIT");
 
+    sample_buf = vmalloc(SAMPLE_BUFSIZE);
+    memset(sample_buf, -1, SAMPLE_BUFSIZE);
+
     wq = create_workqueue("mp3_wq");
     profiling_work = kmalloc(sizeof(struct delayed_work), GFP_KERNEL);
     INIT_DELAYED_WORK(profiling_work, work_callback);
@@ -200,6 +237,8 @@ void __exit mp3_exit(void) {
     destroy_workqueue(wq);
 
     free_all_tasks();
+
+    vfree(sample_buf);
     printk(KERN_ALERT "MP3 MODULE EXIT");
 }
 
