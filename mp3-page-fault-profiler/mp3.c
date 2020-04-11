@@ -22,7 +22,7 @@ MODULE_DESCRIPTION("CS-423 MP3");
 #define PROC_FILE "status"
 #define PROC_DIR  "mp3"
 #define RW_BUFSIZE 512
-#define PROFILE_PERIOD_MS 2000  // millisecond
+#define PROFILE_PERIOD_MS 50  // millisecond
 #define SAMPLE_BUFSIZE 128 * 4 * 1024
 #define MAX_SAMPLE_CNT 48000
 #define DEVICE_NAME "node"
@@ -71,7 +71,8 @@ void sampling(void) {
             sample_buf[sample_index++] = cur_jiff;
             sample_buf[sample_index++] = task->min_flt;
             sample_buf[sample_index++] = task->maj_flt;
-            sample_buf[sample_index++] = ((task->utime + task->stime) / (cur_jiff - task->last_jiff)) * 1000 ;
+            // sample_buf[sample_index++] = ((task->utime + task->stime) / (cur_jiff - task->last_jiff)) * 1000 ;
+            sample_buf[sample_index++] = task->utime + task->stime;
         }
         task->last_jiff = cur_jiff;
         sample_index = sample_index % MAX_SAMPLE_CNT;
@@ -80,7 +81,6 @@ void sampling(void) {
 }
 
 void work_callback(struct work_struct *work) {
-    printk(KERN_ALERT "profling...\n");
     sampling();
     queue_delayed_work(wq, profiling_work, msecs_to_jiffies(PROFILE_PERIOD_MS));
 }
