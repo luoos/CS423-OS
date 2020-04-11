@@ -6,6 +6,8 @@
 #include <linux/uaccess.h>
 #include <linux/mutex.h>
 #include <linux/slab.h>
+#include <linux/timer.h>
+#include <linux/workqueue.h>
 
 #include "mp3_given.h"
 
@@ -16,6 +18,7 @@ MODULE_DESCRIPTION("CS-423 MP3");
 #define PROC_FILE "status"
 #define PROC_DIR  "mp3"
 #define RW_BUFSIZE 512
+#define PROFILE_PERIOD_MS 2000  // millisecond
 
 static struct proc_dir_entry *proc_dir;
 static struct proc_dir_entry *proc_file;
@@ -32,6 +35,14 @@ typedef struct mp3_task_struct {
 static LIST_HEAD(mp3_task_list);
 static DEFINE_MUTEX(task_list_lock);
 static int task_cnt = 0;
+
+static struct workqueue_struct *wq;
+static struct delayed_work *profiling_work;
+
+void work_callback(struct work_struct *work) {
+    printk(KERN_ALERT "profling...\n");
+    queue_delayed_work(wq, profiling_work, msecs_to_jiffies(PROFILE_PERIOD_MS));
+}
 
 int __add_task(mp3_task *task) {
     printk(KERN_ALERT "add task, pid: %d\n", task->pid);
@@ -74,6 +85,16 @@ void free_all_tasks(void) {
     mutex_unlock(&task_list_lock);
 }
 
+void start_profiling(void) {
+    printk(KERN_ALERT "start profiling...\n");
+    queue_delayed_work(wq, profiling_work, msecs_to_jiffies(PROFILE_PERIOD_MS));
+}
+
+void stop_profiling(void) {
+    cancel_delayed_work_sync(profiling_work);
+    printk(KERN_ALERT "stop profiling...\n");
+}
+
 void action_register(pid_t pid) {
     struct task_struct *linux_task;
     mp3_task *task;
@@ -87,18 +108,15 @@ void action_register(pid_t pid) {
         exist_task_cnt = __add_task(task);
 
         if (exist_task_cnt == 1) {
-            // TODO: start profiler
-            printk(KERN_ALERT "start profiler\n");
+            start_profiling();
         }
     }
 }
 
 void action_deregister(pid_t pid) {
-    int exist_task_cnt;
-    exist_task_cnt = __del_task(pid);
+    int exist_task_cnt = __del_task(pid);;
     if (exist_task_cnt == 0) {
-        // TODO: stop profiler
-        printk(KERN_ALERT "stop profiler\n");
+        stop_profiling();
     }
 }
 
@@ -163,6 +181,10 @@ int __init mp3_init(void) {
     // create proc file
     printk(KERN_ALERT "MP3 MODULE INIT");
 
+    wq = create_workqueue("mp3_wq");
+    profiling_work = kmalloc(sizeof(struct delayed_work), GFP_KERNEL);
+    INIT_DELAYED_WORK(profiling_work, work_callback);
+
     proc_dir = proc_mkdir(PROC_DIR, NULL);
     proc_file = proc_create(PROC_FILE, 0666, proc_dir, &file);
     return 0;
@@ -174,6 +196,8 @@ void __exit mp3_exit(void) {
     // remove proc file
     proc_remove(proc_file);
     proc_remove(proc_dir);
+
+    destroy_workqueue(wq);
 
     free_all_tasks();
     printk(KERN_ALERT "MP3 MODULE EXIT");
