@@ -39,7 +39,6 @@ typedef struct mp3_task_struct {
     unsigned long stime;
     unsigned long maj_flt;
     unsigned long min_flt;
-    unsigned long last_jiff;
 } mp3_task;
 
 static LIST_HEAD(mp3_task_list);
@@ -60,23 +59,27 @@ void sampling(void) {
     mp3_task *task;
     struct list_head *ptr;
     int r;
-    unsigned long cur_jiff;
-
+    unsigned long cur_jiff, min_flt, maj_flt, cpu_time;
+    cur_jiff = jiffies;
+    min_flt  = 0;
+    maj_flt  = 0;
+    cpu_time = 0;
     mutex_lock(&task_list_lock);
     list_for_each(ptr, &mp3_task_list) {
         task = list_entry(ptr, mp3_task, lis);
         cur_jiff = jiffies;
         r = get_cpu_use(task->pid, &(task->min_flt), &(task->maj_flt), &(task->utime), &(task->stime));
         if (r == 0) {
-            sample_buf[sample_index++] = cur_jiff;
-            sample_buf[sample_index++] = task->min_flt;
-            sample_buf[sample_index++] = task->maj_flt;
-            // sample_buf[sample_index++] = ((task->utime + task->stime) / (cur_jiff - task->last_jiff)) * 1000 ;
-            sample_buf[sample_index++] = task->utime + task->stime;
+            min_flt  += task->min_flt;
+            maj_flt  += task->maj_flt;
+            cpu_time += (task->utime + task->stime);
         }
-        task->last_jiff = cur_jiff;
-        sample_index = sample_index % MAX_SAMPLE_CNT;
     }
+    sample_buf[sample_index++] = cur_jiff;
+    sample_buf[sample_index++] = min_flt;
+    sample_buf[sample_index++] = maj_flt;
+    sample_buf[sample_index++] = cpu_time;
+    sample_index = sample_index % MAX_SAMPLE_CNT;
     mutex_unlock(&task_list_lock);
 }
 
@@ -147,7 +150,6 @@ void action_register(pid_t pid) {
         task = (mp3_task *) kmalloc(sizeof(mp3_task), GFP_KERNEL);
         task->pid = pid;
         task->linux_task = linux_task;
-        task->last_jiff = jiffies;
         exist_task_cnt = __add_task(task);
 
         if (exist_task_cnt == 1) {
