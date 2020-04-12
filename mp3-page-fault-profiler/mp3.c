@@ -245,6 +245,20 @@ static const struct file_operations device_fops = {
     .mmap = device_mmap,
 };
 
+void reserve_pages(void *mem_start, int len) {
+    int i;
+    for(i = 0; i < len; i += PAGE_SIZE) {
+        SetPageReserved(vmalloc_to_page(mem_start+i));
+    }
+}
+
+void un_reserve_pages(void *mem_start, int len) {
+    int i;
+    for (i = 0; i < len; i += PAGE_SIZE) {
+        ClearPageReserved(vmalloc_to_page(mem_start+i));
+    }
+}
+
 int __init mp3_init(void) {
     // register character device
     dev_major = register_chrdev(0, DEVICE_NAME, &device_fops);
@@ -256,6 +270,7 @@ int __init mp3_init(void) {
 
     sample_buf = vmalloc(SAMPLE_BUFSIZE);
     memset(sample_buf, -1, SAMPLE_BUFSIZE);
+    reserve_pages(sample_buf, SAMPLE_BUFSIZE);
 
     wq = create_workqueue("mp3_wq");
     profiling_work = kmalloc(sizeof(struct delayed_work), GFP_KERNEL);
@@ -282,6 +297,7 @@ void __exit mp3_exit(void) {
 
     free_all_tasks();
 
+    un_reserve_pages(sample_buf, SAMPLE_BUFSIZE);
     vfree(sample_buf);
     printk(KERN_ALERT "MP3 MODULE EXIT");
 }
