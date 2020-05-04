@@ -19,11 +19,32 @@
  */
 static int get_inode_sid(struct inode *inode)
 {
-	/*
-	 * Add your code here
-	 * ...
-	 */
-	return 0;
+	int attr_max_len = 64;
+	char attr_val[attr_max_len];
+	struct dentry *dentry;
+	int len;
+	int sid = MP4_NO_ACCESS;
+
+	if (!inode || !inode->i_op->getxattr) {
+		return sid;
+	}
+
+	dentry = d_find_alias(inode);
+
+	if (!dentry) {
+		return sid;
+	}
+
+	len = inode->i_op->getxattr(dentry, XATTR_MP4_SUFFIX, attr_val, attr_max_len);
+
+	if (len > 0) {
+		sid = __cred_ctx_to_sid(attr_val);
+		if (sid == MP4_NO_ACCESS) {
+			pr_info("[Warning] return MP4_NO_ACCESS with %s", attr_val);
+		}
+	}
+	dput(dentry);
+	return sid;
 }
 
 /**
@@ -51,10 +72,17 @@ static int mp4_bprm_set_creds(struct linux_binprm *bprm)
  */
 static int mp4_cred_alloc_blank(struct cred *cred, gfp_t gfp)
 {
-	/*
-	 * Add your code here
-	 * ...
-	 */
+	struct mp4_security *security_blob;
+	if (!cred) {
+		return 0;
+	}
+	security_blob = kmalloc(sizeof(struct mp4_security), gfp);
+	if (!security_blob) {
+		return -ENOMEM;
+	}
+
+	security_blob->mp4_flags = MP4_NO_ACCESS;
+	cred->security = security_blob;
 	return 0;
 }
 
@@ -67,10 +95,12 @@ static int mp4_cred_alloc_blank(struct cred *cred, gfp_t gfp)
  */
 static void mp4_cred_free(struct cred *cred)
 {
-	/*
-	 * Add your code here
-	 * ...
-	 */
+	if (!cred || !cred->security) {
+		return;
+	}
+
+	kfree(cred->security);
+	cred->security = NULL;
 }
 
 /**
@@ -84,6 +114,24 @@ static void mp4_cred_free(struct cred *cred)
 static int mp4_cred_prepare(struct cred *new, const struct cred *old,
 			    gfp_t gfp)
 {
+	struct mp4_security *old_blob, *new_blob;
+	if (!new) {
+		pr_info("mp4_cred_prepare no new");
+		return 0;
+	}
+
+	new_blob = kmalloc(sizeof(struct mp4_security), gfp);
+	if (!new_blob) {
+		return -ENOMEM;
+	}
+
+	if (!old || !old->security) {
+		new_blob->mp4_flags = MP4_NO_ACCESS;
+	} else {
+		old_blob = old->security;
+		new_blob->mp4_flags = old_blob->mp4_flags;
+	}
+	new->security = new_blob;
 	return 0;
 }
 
