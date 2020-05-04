@@ -168,11 +168,25 @@ static int mp4_inode_init_security(struct inode *inode, struct inode *dir,
 				   const struct qstr *qstr,
 				   const char **name, void **value, size_t *len)
 {
-	/*
-	 * Add your code here
-	 * ...
-	 */
-	return 0;
+	struct mp4_security *cur_blob;
+
+	cur_blob = current_security();
+	if (!cur_blob) {
+		return -EOPNOTSUPP;
+	}
+
+	if (cur_blob->mp4_flags == MP4_TARGET_SID) {
+		if (name && value && len) {
+			*name  = XATTR_MP4_SUFFIX;
+			*value = XATTR_VALUE_RW;
+			*len   = strlen(*value);
+			return 0;
+		} else if (printk_ratelimit()) {
+			pr_alert("mp4_inode_init_security invalid params, name: %p, value: %p, len: %p",
+					 name, value, len);
+		}
+	}
+	return -EOPNOTSUPP;
 }
 
 /**
