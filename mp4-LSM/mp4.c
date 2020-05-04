@@ -48,22 +48,6 @@ static int get_inode_sid(struct inode *inode)
 }
 
 /**
- * mp4_bprm_set_creds - Set the credentials for a new task
- *
- * @bprm: The linux binary preparation structure
- *
- * returns 0 on success.
- */
-static int mp4_bprm_set_creds(struct linux_binprm *bprm)
-{
-	/*
-	 * Add your code here
-	 * ...
-	 */
-	return 0;
-}
-
-/**
  * mp4_cred_alloc_blank - Allocate a blank mp4 security label
  *
  * @cred: the new credentials
@@ -86,6 +70,38 @@ static int mp4_cred_alloc_blank(struct cred *cred, gfp_t gfp)
 	return 0;
 }
 
+/**
+ * mp4_bprm_set_creds - Set the credentials for a new task
+ *
+ * @bprm: The linux binary preparation structure
+ *
+ * returns 0 on success.
+ */
+static int mp4_bprm_set_creds(struct linux_binprm *bprm)
+{
+	struct inode *inode;
+	struct mp4_security *blob;
+	int sid;
+
+	if (!bprm || !bprm->file || !bprm->file->f_inode || !bprm->cred) {
+		return -EINVAL;
+	}
+
+	inode = bprm->file->f_inode;
+
+	sid = get_inode_sid(inode);
+
+	if (sid == MP4_TARGET_SID) {
+		if (!bprm->cred->security) {
+			mp4_cred_alloc_blank(bprm->cred, GFP_KERNEL);
+		}
+
+		blob = bprm->cred->security;
+		blob->mp4_flags = sid;
+	}
+
+	return 0;
+}
 
 /**
  * mp4_cred_free - Free a created security label
