@@ -1,0 +1,4 @@
+sudo setfattr -x security.mp4 /bin/cat
+sudo setfattr -x security.mp4 /home
+sudo setfattr -x security.mp4 /home/junluo2
+sudo setfattr -x security.mp4 /home/junluo2/file.txt

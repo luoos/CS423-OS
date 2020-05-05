@@ -1,0 +1,4 @@
+sudo setfattr -n security.mp4 -v target /bin/cat
+sudo setfattr -n security.mp4 -v dir /home
+sudo setfattr -n security.mp4 -v dir /home/junluo2
+sudo setfattr -n security.mp4 -v read-only /home/junluo2/file.txt
