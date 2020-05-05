@@ -19,13 +19,13 @@
  */
 static int get_inode_sid(struct inode *inode)
 {
-	int attr_max_len = 64;
-	char attr_val[attr_max_len];
+	int buflen = 256;
+	char *buf;
 	struct dentry *dentry;
-	int len;
+	int ret;
 	int sid = MP4_NO_ACCESS;
 
-	if (!inode || !inode->i_op->getxattr) {
+	if (!inode->i_op->getxattr) {
 		return sid;
 	}
 
@@ -35,15 +35,33 @@ static int get_inode_sid(struct inode *inode)
 		return sid;
 	}
 
-	len = inode->i_op->getxattr(dentry, XATTR_MP4_SUFFIX, attr_val, attr_max_len);
+	buf = kmalloc(buflen, GFP_KERNEL);
+	memset(buf, 0, buflen);
 
-	if (len > 0) {
-		sid = __cred_ctx_to_sid(attr_val);
-		if (sid == MP4_NO_ACCESS) {
-			pr_info("[Warning] return MP4_NO_ACCESS with %s", attr_val);
+	if (!inode->i_op->getxattr) {
+		dput(dentry);
+		kfree(buf);
+		return 0;
+	}
+
+	ret = inode->i_op->getxattr(dentry, XATTR_NAME_MP4, buf, buflen);
+
+	if (ret == -ERANGE) {
+		kfree(buf);
+		ret = inode->i_op->getxattr(dentry, XATTR_NAME_MP4, NULL, 0);
+		if (ret < 0) {
+			dput(dentry);
+			return sid;
 		}
+		buf = kmalloc(ret + 1, GFP_KERNEL);
+		ret = inode->i_op->getxattr(dentry, XATTR_NAME_MP4, buf, buflen);
+		buf[ret] = 0;
 	}
 	dput(dentry);
+	if (ret > 0) {
+		sid = __cred_ctx_to_sid(buf);
+	}
+	kfree(buf);
 	return sid;
 }
 
@@ -132,7 +150,7 @@ static int mp4_cred_prepare(struct cred *new, const struct cred *old,
 {
 	struct mp4_security *old_blob, *new_blob;
 	if (!new) {
-		pr_info("mp4_cred_prepare no new");
+		pr_info("mp4_cred_prepare no new\n");
 		return 0;
 	}
 
@@ -172,7 +190,7 @@ static int mp4_inode_init_security(struct inode *inode, struct inode *dir,
 
 	cur_blob = current_security();
 	if (!cur_blob) {
-		return -EOPNOTSUPP;
+		return 0;
 	}
 
 	if (cur_blob->mp4_flags == MP4_TARGET_SID) {
@@ -182,11 +200,11 @@ static int mp4_inode_init_security(struct inode *inode, struct inode *dir,
 			*len   = strlen(*value);
 			return 0;
 		} else if (printk_ratelimit()) {
-			pr_alert("mp4_inode_init_security invalid params, name: %p, value: %p, len: %p",
+			pr_alert("mp4_inode_init_security invalid params, name: %p, value: %p, len: %p\n",
 					 name, value, len);
 		}
 	}
-	return -EOPNOTSUPP;
+	return 0;
 }
 
 /**
@@ -201,10 +219,43 @@ static int mp4_inode_init_security(struct inode *inode, struct inode *dir,
  */
 static int mp4_has_permission(int ssid, int osid, int mask)
 {
-	/*
-	 * Add your code here
-	 * ...
-	 */
+	int is_target = (ssid == MP4_TARGET_SID);
+	switch(osid) {
+		case MP4_NO_ACCESS:
+			if (is_target) {
+				return -EACCES;
+			}
+			break;
+		case MP4_READ_OBJ:
+			if (mask & (MAY_WRITE|MAY_APPEND|MAY_EXEC)) {
+				return -EACCES;
+			}
+			break;
+		case MP4_READ_WRITE:
+			if (is_target && (mask & MAY_EXEC)) {
+				return -EACCES;
+			} else if (!is_target && (mask & (MAY_WRITE|MAY_APPEND|MAY_EXEC))) {
+				return -EACCES;
+			}
+			break;
+		case MP4_WRITE_OBJ:
+			if (is_target && (mask & (MAY_READ|MAY_EXEC))) {
+				return -EACCES;
+			} else if (!is_target && (mask & (MAY_WRITE|MAY_APPEND|MAY_EXEC))) {
+				return -EACCES;
+			}
+			break;
+		case MP4_EXEC_OBJ:
+			if (mask & (MAY_WRITE|MAY_APPEND)) {
+				return -EACCES;
+			}
+			break;
+		case MP4_READ_DIR:
+			if (is_target && (mask & (MAY_WRITE|MAY_APPEND))) {
+				return -EACCES;
+			}
+			break;
+	}
 	return 0;
 }
 
@@ -221,10 +272,68 @@ static int mp4_has_permission(int ssid, int osid, int mask)
  */
 static int mp4_inode_permission(struct inode *inode, int mask)
 {
-	/*
-	 * Add your code here
-	 * ...
-	 */
+	char *path;
+	char *buf;
+	int buflen = 256;
+	int ssid = 0, osid = 0;
+	int access_code = 0;
+	struct dentry *dentry;
+	struct mp4_security *blob;
+
+	mask &= (MAY_READ|MAY_WRITE|MAY_EXEC|MAY_APPEND);
+
+	if (mask == 0) {
+		return 0;
+	}
+
+	if (!inode) {
+		if (printk_ratelimit()) {
+			pr_alert("inode_permission: inode is NULL\n");
+		}
+		return 0;
+	}
+
+	dentry = d_find_alias(inode);
+	if (!dentry) {
+		if (printk_ratelimit()) {
+			pr_alert("inode_permission: dentry is NULL\n");
+		}
+		return 0;
+	}
+
+	buf = kmalloc(buflen, GFP_KERNEL);
+	path = dentry_path_raw(dentry, buf, buflen);
+	if (path && mp4_should_skip_path(path)) {
+		dput(dentry);
+		kfree(buf);
+		// if (printk_ratelimit()) {
+		// 	pr_alert("inode_permission: skip path\n");
+		// }
+		return 0;
+	}
+	dput(dentry);
+
+	blob = current_security();
+	if (blob) {
+		ssid = blob->mp4_flags;
+	}
+	osid = get_inode_sid(inode);
+	if (ssid > 0) {
+		pr_info("go to check path: %s, ssid: %d, osid: %d\n", path, ssid, osid);
+	}
+	kfree(buf);
+
+	if (ssid != MP4_TARGET_SID && S_ISDIR(inode->i_mode)) {
+		return 0;
+	} else {
+		access_code = mp4_has_permission(ssid, osid, mask);
+	}
+
+	if (access_code) {
+		// deny
+		pr_alert("access denied, ssid: %d, osid: %d, mask: %d, path: %s\n", ssid, osid, mask, path);
+	}
+
 	return 0;
 }
 
@@ -259,7 +368,7 @@ static __init int mp4_init(void)
 	if (!security_module_enable("mp4"))
 		return 0;
 
-	pr_info("mp4 LSM initializing..");
+	pr_info("mp4 LSM initializing..\n");
 
 	/*
 	 * Register the mp4 hooks with lsm
