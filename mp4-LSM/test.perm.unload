@@ -2,3 +2,7 @@ sudo setfattr -x security.mp4 /bin/cat
 sudo setfattr -x security.mp4 /home
 sudo setfattr -x security.mp4 /home/junluo2
 sudo setfattr -x security.mp4 /home/junluo2/file.txt
+
+sudo setfattr -x security.mp4 /home/junluo2/proj_sp20_luoos/mp4-LSM/write_file
+sudo setfattr -x security.mp4 /home/junluo2/proj_sp20_luoos
+sudo setfattr -x security.mp4 /home/junluo2/proj_sp20_luoos/mp4-LSM
