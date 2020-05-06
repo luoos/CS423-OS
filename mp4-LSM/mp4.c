@@ -189,16 +189,21 @@ static int mp4_inode_init_security(struct inode *inode, struct inode *dir,
 
 	if (cur_blob->mp4_flags == MP4_TARGET_SID) {
 		if (name && value && len) {
-			*name  = XATTR_MP4_SUFFIX;
-			*value = XATTR_VALUE_RW;
-			*len   = strlen(*value);
+			*name = kstrdup(XATTR_MP4_SUFFIX, GFP_KERNEL);
+			if (S_ISDIR(inode->i_mode)) {
+				*value = kstrdup("dir-write", GFP_KERNEL);
+				*len = 10;
+			} else {
+				*value = kstrdup("read-write", GFP_KERNEL);
+				*len = 11;
+			}
 			return 0;
 		} else if (printk_ratelimit()) {
 			pr_alert("mp4_inode_init_security invalid params, name: %p, value: %p, len: %p\n",
 					 name, value, len);
 		}
 	}
-	return 0;
+	return -EOPNOTSUPP;
 }
 
 /**

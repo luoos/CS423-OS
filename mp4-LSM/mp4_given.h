@@ -7,7 +7,6 @@
 /* mp4 extended attributed */
 #define XATTR_MP4_SUFFIX "mp4"
 #define XATTR_NAME_MP4 XATTR_SECURITY_PREFIX XATTR_MP4_SUFFIX
-#define XATTR_VALUE_RW "read-write"
 
 /* mp4 labels along with their semantics */
 #define MP4_NO_ACCESS 0      /* may not be accessed by target,
