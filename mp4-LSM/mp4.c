@@ -36,17 +36,11 @@ static int get_inode_sid(struct inode *inode)
 	}
 
 	buf = kmalloc(buflen, GFP_KERNEL);
-	memset(buf, 0, buflen);
-
-	if (!inode->i_op->getxattr) {
-		dput(dentry);
-		kfree(buf);
-		return 0;
-	}
+	memset(buf, 0, buflen); // reall needed? set the buf[len] to '\0' should be enough
 
 	ret = inode->i_op->getxattr(dentry, XATTR_NAME_MP4, buf, buflen);
 
-	if (ret == -ERANGE) {
+	if (ret == -ERANGE) { // don't understand how ERANGE works
 		kfree(buf);
 		ret = inode->i_op->getxattr(dentry, XATTR_NAME_MP4, NULL, 0);
 		if (ret < 0) {
@@ -306,9 +300,6 @@ static int mp4_inode_permission(struct inode *inode, int mask)
 	if (path && mp4_should_skip_path(path)) {
 		dput(dentry);
 		kfree(buf);
-		// if (printk_ratelimit()) {
-		// 	pr_alert("inode_permission: skip path\n");
-		// }
 		return 0;
 	}
 	dput(dentry);
@@ -318,23 +309,19 @@ static int mp4_inode_permission(struct inode *inode, int mask)
 		ssid = blob->mp4_flags;
 	}
 	osid = get_inode_sid(inode);
-	if (ssid > 0) {
-		pr_info("go to check path: %s, ssid: %d, osid: %d\n", path, ssid, osid);
-	}
-	kfree(buf);
 
 	if (ssid != MP4_TARGET_SID && S_ISDIR(inode->i_mode)) {
+		kfree(buf);
 		return 0;
-	} else {
-		access_code = mp4_has_permission(ssid, osid, mask);
 	}
 
+	access_code = mp4_has_permission(ssid, osid, mask);
 	if (access_code) {
 		// deny
 		pr_alert("access denied, ssid: %d, osid: %d, mask: %d, path: %s\n", ssid, osid, mask, path);
 	}
-
-	return 0;
+	kfree(buf);
+	return access_code;
 }
 
 
