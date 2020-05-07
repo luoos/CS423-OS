@@ -5,10 +5,12 @@ sudo setfattr -n security.mp4 -v dir /var
 sudo setfattr -n security.mp4 -v dir /var/cache
 sudo setfattr -n security.mp4 -v dir /var/cache/cracklib
 sudo setfattr -n security.mp4 -v dir /etc/pam.d
+
 sudo setfattr -n security.mp4 -v dir-write /etc
 
 sudo setfattr -n security.mp4 -v write-only /etc/.pwd.lock
 
+sudo setfattr -n security.mp4 -v read-only /etc/krb5.conf
 sudo setfattr -n security.mp4 -v read-only /lib/x86_64-linux-gnu/libcrypt.so.1
 sudo setfattr -n security.mp4 -v read-only /usr/lib/x86_64-linux-gnu/libkrb5support.so.0
 sudo setfattr -n security.mp4 -v read-only /lib/x86_64-linux-gnu/libnss_sss.so.2
@@ -71,7 +73,6 @@ sudo setfattr -n security.mp4 -v read-only /lib/x86_64-linux-gnu/libnss_compat.s
 sudo setfattr -n security.mp4 -v read-only /lib/x86_64-linux-gnu/security/pam_pwquality.so
 sudo setfattr -n security.mp4 -v read-only /usr/lib/x86_64-linux-gnu/libheimntlm.so.0
 sudo setfattr -n security.mp4 -v read-only /usr/lib/x86_64-linux-gnu/libwind.so.0
-sudo setfattr -n security.mp4 -v read-write /etc/krb5.conf
 sudo setfattr -n security.mp4 -v read-only /usr/lib/x86_64-linux-gnu/libgssapi.so.3
 sudo setfattr -n security.mp4 -v read-only /lib/x86_64-linux-gnu/libresolv.so.2
 sudo setfattr -n security.mp4 -v read-only /lib/x86_64-linux-gnu/security/pam_permit.so
